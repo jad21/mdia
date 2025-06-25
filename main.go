@@ -1,8 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Println("Uso:", os.Args[0], "ARCHIVO_SALIDA DIRECTORIO")
+		fmt.Fprintf(os.Stderr, "Uso: %s ARCHIVO_SALIDA DIRECTORIO\n", os.Args[0])
 		os.Exit(1)
 	}
 
@@ -24,76 +25,66 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Vaciar el archivo de salida si ya existe
-	err = ioutil.WriteFile(outputFile, []byte{}, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Buffer para acumular la salida
+	var buffer bytes.Buffer
 
-	// Navegar al directorio especificado
-	err = os.Chdir(directorio)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Recorrer el directorio sin imprimir nada en stdout
+	err = filepath.Walk(directorio, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
 
-	// Encontrar todos los archivos ignorando las extensiones y carpetas especificadas
-	files, err := filepath.Glob("**/*")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for _, file := range files {
 		// Ignorar archivos y carpetas especificadas
-		if strings.HasSuffix(file, ".pyc") ||
-			strings.HasSuffix(file, ".png") ||
-			strings.HasSuffix(file, ".jpg") ||
-			strings.HasSuffix(file, ".jpeg") ||
-			strings.HasSuffix(file, ".gif") ||
-			strings.HasSuffix(file, ".svg") ||
-			strings.HasSuffix(file, ".pdf") ||
-			strings.HasSuffix(file, ".ico") ||
-			file == "pnpm-lock.yaml" ||
-			strings.HasPrefix(file, "node_modules/") ||
-			strings.HasPrefix(file, "venv/") ||
-			strings.HasPrefix(file, "_venv/") ||
-			strings.HasPrefix(file, ".git/") ||
-			strings.HasPrefix(file, "dist/") ||
-			strings.HasPrefix(file, "imagenes/") ||
-			strings.HasPrefix(file, "npm-locks/") {
-			continue
+		if strings.HasSuffix(path, ".pyc") ||
+			strings.HasSuffix(path, ".png") ||
+			strings.HasSuffix(path, ".jpg") ||
+			strings.HasSuffix(path, ".jpeg") ||
+			strings.HasSuffix(path, ".gif") ||
+			strings.HasSuffix(path, ".svg") ||
+			strings.HasSuffix(path, ".pdf") ||
+			strings.HasSuffix(path, ".ico") ||
+			path == "pnpm-lock.yaml" ||
+			strings.HasPrefix(path, "node_modules/") ||
+			strings.HasPrefix(path, "venv/") ||
+			strings.HasPrefix(path, "_venv/") ||
+			strings.HasPrefix(path, ".git/") ||
+			strings.HasPrefix(path, "dist/") ||
+			strings.HasPrefix(path, "imagenes/") ||
+			strings.HasPrefix(path, "npm-locks/") {
+			return nil
 		}
 
-		// Obtener la ruta relativa del archivo
-		relPath, err := filepath.Rel(".", file)
+		// Obtener la ruta relativa
+		relPath, err := filepath.Rel(directorio, path)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
-		// Obtener la extensión del archivo
-		ext := filepath.Ext(file)
-
-		// Leer el contenido del archivo
-		data, err := ioutil.ReadFile(file)
+		// Leer contenido
+		data, err := os.ReadFile(path)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
-		// Agregar al archivo de salida con el formato especificado
-		fmt.Fprintf(os.Stdout, "# %s\n", relPath)
-		fmt.Fprintf(os.Stdout, "```%s\n", ext[1:])
-		fmt.Fprintf(os.Stdout, "%s\n", string(data))
-		fmt.Fprintf(os.Stdout, "```\n\n")
+		ext := filepath.Ext(path)
 
-		// Append al archivo de salida
-		f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer f.Close()
+		// Escribir al buffer
+		fmt.Fprintf(&buffer, "-- %s\n", relPath)
+		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
+		fmt.Fprintf(&buffer, "%s\n", data)
+		fmt.Fprintf(&buffer, "```\n\n")
 
-		fmt.Fprintf(f, "# %s\n", relPath)
-		fmt.Fprintf(f, "```%s\n", ext[1:])
-		fmt.Fprintf(f, "%s\n", string(data))
-		fmt.Fprintf(f, "```\n\n")
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Guardar el contenido acumulado en el archivo de salida
+	if err := os.WriteFile(outputFile, buffer.Bytes(), 0644); err != nil {
+		log.Fatal(err)
 	}
 }
