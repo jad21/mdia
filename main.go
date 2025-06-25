@@ -77,7 +77,7 @@ func main() {
 		ext := filepath.Ext(path)
 
 		// Escribir al buffer
-		fmt.Fprintf(&buffer, "# %s\n", relPath)
+		fmt.Fprintf(&buffer, "-- %s\n", relPath)
 		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
 		fmt.Fprintf(&buffer, "%s\n", data)
 		fmt.Fprintf(&buffer, "```\n\n")
