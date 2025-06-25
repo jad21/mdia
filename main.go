@@ -8,28 +8,33 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/atotto/clipboard"
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "Uso: %s ARCHIVO_SALIDA DIRECTORIO\n", os.Args[0])
+	argsLen := len(os.Args)
+	// Acepta uno o dos parámetros: [ARCHIVO_SALIDA] DIRECTORIO
+	if argsLen != 2 && argsLen != 3 {
+		fmt.Fprintf(os.Stderr, "Uso: %s [ARCHIVO_SALIDA] DIRECTORIO\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	archivoSalida := os.Args[1]
-	directorio := os.Args[2]
-
-	// Obtener la ruta absoluta del archivo de salida
-	outputFile, err := filepath.Abs(archivoSalida)
-	if err != nil {
-		log.Fatal(err)
+	var archivoSalida string
+	var directorio string
+	if argsLen == 3 {
+		archivoSalida = os.Args[1]
+		directorio = os.Args[2]
+	} else {
+		// Sólo se proporciona el directorio; sólo guarda en portapapeles
+		directorio = os.Args[1]
 	}
 
 	// Buffer para acumular la salida
 	var buffer bytes.Buffer
 
 	// Recorrer el directorio sin imprimir nada en stdout
-	err = filepath.Walk(directorio, func(path string, info fs.FileInfo, err error) error {
+	err := filepath.Walk(directorio, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -72,7 +77,7 @@ func main() {
 		ext := filepath.Ext(path)
 
 		// Escribir al buffer
-		fmt.Fprintf(&buffer, "-- %s\n", relPath)
+		fmt.Fprintf(&buffer, "# %s\n", relPath)
 		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
 		fmt.Fprintf(&buffer, "%s\n", data)
 		fmt.Fprintf(&buffer, "```\n\n")
@@ -83,8 +88,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Guardar el contenido acumulado en el archivo de salida
-	if err := os.WriteFile(outputFile, buffer.Bytes(), 0644); err != nil {
+	// Si se especificó archivoSalida, guardar en disco
+	if archivoSalida != "" {
+		outputFile, err := filepath.Abs(archivoSalida)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := os.WriteFile(outputFile, buffer.Bytes(), 0644); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Copiar el contenido al portapapeles (siempre)
+	if err := clipboard.WriteAll(buffer.String()); err != nil {
 		log.Fatal(err)
 	}
 }
