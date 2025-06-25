@@ -63,10 +63,10 @@ func main() {
 		}
 
 		// Obtener la ruta relativa
-		relPath, err := filepath.Rel(directorio, path)
-		if err != nil {
-			return err
-		}
+		// relPath, err := filepath.Rel(directorio, path)
+		// if err != nil {
+		// 	return err
+		// }
 
 		// Leer contenido
 		data, err := os.ReadFile(path)
@@ -75,12 +75,10 @@ func main() {
 		}
 
 		ext := filepath.Ext(path)
-
 		// Escribir al buffer
-		fmt.Fprintf(&buffer, "-- %s\n", relPath)
+		fmt.Fprintf(&buffer, "-- `%s`\n", strings.TrimSpace(path))
 		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
-		fmt.Fprintf(&buffer, "%s\n", data)
-		fmt.Fprintf(&buffer, "```\n\n")
+		fmt.Fprintf(&buffer, "%s\n```\n\n", strings.TrimSpace(string(data)))
 
 		return nil
 	})
