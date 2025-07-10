@@ -10,39 +10,56 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	ign "github.com/sabhiram/go-gitignore"
 )
 
 func main() {
 	argsLen := len(os.Args)
-	// Acepta uno o dos parámetros: [ARCHIVO_SALIDA] DIRECTORIO
 	if argsLen != 2 && argsLen != 3 {
 		fmt.Fprintf(os.Stderr, "Uso: %s [ARCHIVO_SALIDA] DIRECTORIO\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	var archivoSalida string
-	var directorio string
+	var archivoSalida, directorio string
 	if argsLen == 3 {
-		archivoSalida = os.Args[1]
+		nArchivo := os.Args[1]
+		archivoSalida = nArchivo
 		directorio = os.Args[2]
 	} else {
-		// Sólo se proporciona el directorio; sólo guarda en portapapeles
 		directorio = os.Args[1]
 	}
 
-	// Buffer para acumular la salida
+	// Cargar .gitignore si existe
+	ignoreFile := filepath.Join(directorio, ".gitignore")
+	var ignorer *ign.GitIgnore
+	if _, err := os.Stat(ignoreFile); err == nil {
+		ignorer, _ = ign.CompileIgnoreFile(ignoreFile)
+	} else {
+		// Ningún .gitignore presente o no accesible
+		ignorer = ign.CompileIgnoreLines()
+	}
+
 	var buffer bytes.Buffer
 
-	// Recorrer el directorio sin imprimir nada en stdout
 	err := filepath.Walk(directorio, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
+		// Saltar directorios
 		if info.IsDir() {
+			// Ignorar directorios según gitignore
+			if ignorer != nil && ignorer.MatchesPath(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
-		// Ignorar archivos y carpetas especificadas
+		// Ignorar según .gitignore
+		if ignorer != nil && ignorer.MatchesPath(path) {
+			return nil
+		}
+
+		// Ignorar extensiones o patrones fijos
 		if strings.HasSuffix(path, ".pyc") ||
 			strings.HasSuffix(path, ".png") ||
 			strings.HasSuffix(path, ".jpg") ||
@@ -62,20 +79,12 @@ func main() {
 			return nil
 		}
 
-		// Obtener la ruta relativa
-		// relPath, err := filepath.Rel(directorio, path)
-		// if err != nil {
-		// 	return err
-		// }
-
-		// Leer contenido
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 
 		ext := filepath.Ext(path)
-		// Escribir al buffer
 		fmt.Fprintf(&buffer, "-- `%s`\n", strings.TrimSpace(path))
 		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
 		fmt.Fprintf(&buffer, "%s\n```\n\n", strings.TrimSpace(string(data)))
@@ -86,7 +95,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Si se especificó archivoSalida, guardar en disco
 	if archivoSalida != "" {
 		outputFile, err := filepath.Abs(archivoSalida)
 		if err != nil {
@@ -97,7 +105,6 @@ func main() {
 		}
 	}
 
-	// Copiar el contenido al portapapeles (siempre)
 	if err := clipboard.WriteAll(buffer.String()); err != nil {
 		log.Fatal(err)
 	}
