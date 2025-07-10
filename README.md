@@ -10,10 +10,16 @@ Este es un script en Go que se puede ejecutar desde la línea de comandos. Permi
    git clone https://github.com/jad21/mdia.git
    ```
 
-2. Instala el binario:
+2. Instala el binario con Go:
 
    ```bash
    go install github.com/jad21/mdia@latest
+   ```
+
+3. Instala el binario usando Goblin:
+
+   ```bash
+   curl -sf https://goblin.run/github.com/jad21/mdia@v0.1.0 | sh
    ```
 
 ## Uso
