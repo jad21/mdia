@@ -13,7 +13,7 @@ Este es un script en Go que se puede ejecutar desde la línea de comandos. Permi
 2. Instala el binario:
 
    ```bash
-   go install github.com/jad21/mdia
+   go install github.com/jad21/mdia@latest
    ```
 
 ## Uso
