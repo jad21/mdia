@@ -1,12 +1,15 @@
+// main.go
 package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -14,53 +17,69 @@ import (
 )
 
 func main() {
-	argsLen := len(os.Args)
-	if argsLen != 2 && argsLen != 3 {
-		fmt.Fprintf(os.Stderr, "Uso: %s [ARCHIVO_SALIDA] DIRECTORIO\n", os.Args[0])
+	// Flags de filtro
+	searchSimple := flag.String("search", "", "Subcadena a buscar en el contenido de los archivos")
+	searchRegex := flag.String("search-regex", "", "Expresión regular a aplicar sobre el contenido de los archivos")
+	nameSimple := flag.String("name", "", "Subcadena a buscar en la ruta/nombre de los archivos")
+	nameRegex := flag.String("name-regex", "", "Expresión regular a aplicar sobre la ruta/nombre de los archivos")
+
+	flag.Parse()
+	args := flag.Args()
+	if len(args) != 1 && len(args) != 2 {
+		fmt.Fprintf(os.Stderr, "Uso: %s [ARCHIVO_SALIDA] DIRECTORIO [flags]\n", os.Args[0])
+		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	var archivoSalida, directorio string
-	if argsLen == 3 {
-		nArchivo := os.Args[1]
-		archivoSalida = nArchivo
-		directorio = os.Args[2]
+	// Determinar salida y directorio
+	var outFile, dir string
+	if len(args) == 2 {
+		outFile = args[0]
+		dir = args[1]
 	} else {
-		directorio = os.Args[1]
+		dir = args[0]
 	}
 
-	// Cargar .gitignore si existe
-	ignoreFile := filepath.Join(directorio, ".gitignore")
+	// Preparar regex si se especificaron
+	var (
+		reContent *regexp.Regexp
+		reName    *regexp.Regexp
+		err       error
+	)
+	if *searchRegex != "" {
+		if reContent, err = regexp.Compile(*searchRegex); err != nil {
+			log.Fatalf("Regex de contenido inválida: %v", err)
+		}
+	}
+	if *nameRegex != "" {
+		if reName, err = regexp.Compile(*nameRegex); err != nil {
+			log.Fatalf("Regex de nombres inválida: %v", err)
+		}
+	}
+
+	// Cargar .gitignore
+	ignoreFile := filepath.Join(dir, ".gitignore")
 	var ignorer *ign.GitIgnore
 	if _, err := os.Stat(ignoreFile); err == nil {
 		ignorer, _ = ign.CompileIgnoreFile(ignoreFile)
 	} else {
-		// Ningún .gitignore presente o no accesible
 		ignorer = ign.CompileIgnoreLines()
 	}
 
 	var buffer bytes.Buffer
-
-	err := filepath.Walk(directorio, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
+	err = filepath.Walk(dir, func(path string, info fs.FileInfo, ferr error) error {
+		if ferr != nil {
+			return ferr
 		}
-		// Saltar directorios
 		if info.IsDir() {
-			// Ignorar directorios según gitignore
 			if ignorer != nil && ignorer.MatchesPath(path) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-
-		// Ignorar según .gitignore
-		if ignorer != nil && ignorer.MatchesPath(path) {
-			return nil
-		}
-
-		// Ignorar extensiones o patrones fijos
-		if strings.HasSuffix(path, ".pyc") ||
+		// Aplicar ignore por gitignore y extensiones fijas
+		if (ignorer != nil && ignorer.MatchesPath(path)) ||
+			strings.HasSuffix(path, ".pyc") ||
 			strings.HasSuffix(path, ".png") ||
 			strings.HasSuffix(path, ".jpg") ||
 			strings.HasSuffix(path, ".jpeg") ||
@@ -79,32 +98,52 @@ func main() {
 			return nil
 		}
 
+		// Filtro por nombre
+		if *nameSimple != "" && !strings.Contains(path, *nameSimple) {
+			return nil
+		}
+		if reName != nil && !reName.MatchString(path) {
+			return nil
+		}
+
+		// Leer contenido
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
+		cont := string(data)
 
+		// Filtro por contenido
+		if *searchSimple != "" && !strings.Contains(cont, *searchSimple) {
+			return nil
+		}
+		if reContent != nil && !reContent.MatchString(cont) {
+			return nil
+		}
+
+		// Si pasa todos los filtros, lo incluimos
 		ext := filepath.Ext(path)
-		fmt.Fprintf(&buffer, "-- `%s`\n", strings.TrimSpace(path))
+		fmt.Fprintf(&buffer, "-- `%s`\n", strings.TrimPrefix(path, dir+"/"))
 		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
-		fmt.Fprintf(&buffer, "%s\n```\n\n", strings.TrimSpace(string(data)))
-
+		fmt.Fprintf(&buffer, "%s\n```\n\n", cont)
 		return nil
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if archivoSalida != "" {
-		outputFile, err := filepath.Abs(archivoSalida)
+	// Guardar en archivo si se indicó
+	if outFile != "" {
+		abs, err := filepath.Abs(outFile)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := os.WriteFile(outputFile, buffer.Bytes(), 0644); err != nil {
+		if err := os.WriteFile(abs, buffer.Bytes(), 0644); err != nil {
 			log.Fatal(err)
 		}
 	}
 
+	// Copiar al portapapeles
 	if err := clipboard.WriteAll(buffer.String()); err != nil {
 		log.Fatal(err)
 	}

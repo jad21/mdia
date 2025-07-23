@@ -51,6 +51,32 @@ El script procesará cada archivo y formateará la salida así:
 Contenido del archivo
 ````
 
+El script acepta opcionalmente hasta 4 flags de filtrado (todos combinados con AND):
+
+- `-search STRING`  
+  Copia solo archivos cuyo contenido **contenga** la subcadena `STRING`.
+
+- `-search-regex PATTERN`  
+  Copia solo archivos cuyo contenido **coincida** con la expresión regular `PATTERN`.
+
+- `-name STRING`  
+  Copia solo archivos cuya ruta/nombre **contenga** la subcadena `STRING`.
+
+- `-name-regex PATTERN`  
+  Copia solo archivos cuya ruta/nombre **coincida** con la expresión regular `PATTERN`.
+
+Ejemplos:
+
+```bash
+# Subcadena en contenido Y en nombre
+mdia -search "TODO" -name ".go" mi_carpeta/
+
+# Regex en contenido Y subcadena en nombre
+mdia -search-regex "func\\s+main" -name "main.go" mi_carpeta salida.md
+
+
+Con esto el binario filtrará los archivos por nombre y/o contenido, usando tanto búsquedas simples como regex, y solo incluirá aquellos que cumplan **todas** las condiciones.
+
 ## Características
 
 * Ignora archivos con las siguientes extensiones: `.pyc`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.pdf`, `.ico`.
