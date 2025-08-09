@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -23,21 +22,17 @@ func main() {
 	nameSimple := flag.String("name", "", "Subcadena a buscar en la ruta/nombre de los archivos")
 	nameRegex := flag.String("name-regex", "", "Expresión regular a aplicar sobre la ruta/nombre de los archivos")
 
+	// Flag de salida
+	var outFile string
+	flag.StringVar(&outFile, "output", "", "Archivo de salida")
+	flag.StringVar(&outFile, "o", "", "Archivo de salida (alias)")
+
 	flag.Parse()
-	args := flag.Args()
-	if len(args) != 1 && len(args) != 2 {
-		fmt.Fprintf(os.Stderr, "Uso: %s [ARCHIVO_SALIDA] DIRECTORIO [flags]\n", os.Args[0])
+	dirs := flag.Args()
+	if len(dirs) < 1 {
+		fmt.Fprintf(os.Stderr, "Uso: %s [flags] DIRECTORIOS...\n", os.Args[0])
 		flag.PrintDefaults()
 		os.Exit(1)
-	}
-
-	// Determinar salida y directorio
-	var outFile, dir string
-	if len(args) == 2 {
-		outFile = args[0]
-		dir = args[1]
-	} else {
-		dir = args[0]
 	}
 
 	// Preparar regex si se especificaron
@@ -57,82 +52,86 @@ func main() {
 		}
 	}
 
-	// Cargar .gitignore
-	ignoreFile := filepath.Join(dir, ".gitignore")
-	var ignorer *ign.GitIgnore
-	if _, err := os.Stat(ignoreFile); err == nil {
-		ignorer, _ = ign.CompileIgnoreFile(ignoreFile)
-	} else {
-		ignorer = ign.CompileIgnoreLines()
-	}
-
 	var buffer bytes.Buffer
-	err = filepath.Walk(dir, func(path string, info fs.FileInfo, ferr error) error {
-		if ferr != nil {
-			return ferr
+	// Recorrer todos los directorios indicados
+	for _, dir := range dirs {
+		// Cargar .gitignore si existe
+		ignoreFile := filepath.Join(dir, ".gitignore")
+		var ignorer *ign.GitIgnore
+		if _, err := os.Stat(ignoreFile); err == nil {
+			ignorer, _ = ign.CompileIgnoreFile(ignoreFile)
+		} else {
+			ignorer = ign.CompileIgnoreLines()
 		}
-		if info.IsDir() {
-			if ignorer != nil && ignorer.MatchesPath(path) {
-				return filepath.SkipDir
+
+		err = filepath.Walk(dir, func(path string, info fs.FileInfo, ferr error) error {
+			if ferr != nil {
+				return ferr
 			}
-			return nil
-		}
-		// Aplicar ignore por gitignore y extensiones fijas
-		if (ignorer != nil && ignorer.MatchesPath(path)) ||
-			strings.HasSuffix(path, ".pyc") ||
-			strings.HasSuffix(path, ".png") ||
-			strings.HasSuffix(path, ".jpg") ||
-			strings.HasSuffix(path, ".jpeg") ||
-			strings.HasSuffix(path, ".gif") ||
-			strings.HasSuffix(path, ".svg") ||
-			strings.HasSuffix(path, ".pdf") ||
-			strings.HasSuffix(path, ".ico") ||
-			path == "pnpm-lock.yaml" ||
-			strings.HasPrefix(path, "node_modules/") ||
-			strings.HasPrefix(path, "venv/") ||
-			strings.HasPrefix(path, "_venv/") ||
-			strings.HasPrefix(path, ".git/") ||
-			strings.HasPrefix(path, "dist/") ||
-			strings.HasPrefix(path, "imagenes/") ||
-			strings.HasPrefix(path, "npm-locks/") {
-			return nil
-		}
+			if info.IsDir() {
+				if ignorer != nil && ignorer.MatchesPath(path) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// Ignorar según gitignore y extensiones fijas
+			if (ignorer != nil && ignorer.MatchesPath(path)) ||
+				strings.HasSuffix(path, ".pyc") ||
+				strings.HasSuffix(path, ".png") ||
+				strings.HasSuffix(path, ".jpg") ||
+				strings.HasSuffix(path, ".jpeg") ||
+				strings.HasSuffix(path, ".gif") ||
+				strings.HasSuffix(path, ".svg") ||
+				strings.HasSuffix(path, ".pdf") ||
+				strings.HasSuffix(path, ".ico") ||
+				path == "pnpm-lock.yaml" ||
+				strings.HasPrefix(path, "node_modules/") ||
+				strings.HasPrefix(path, "venv/") ||
+				strings.HasPrefix(path, "_venv/") ||
+				strings.HasPrefix(path, ".git/") ||
+				strings.HasPrefix(path, "dist/") ||
+				strings.HasPrefix(path, "imagenes/") ||
+				strings.HasPrefix(path, "npm-locks/") {
+				return nil
+			}
 
-		// Filtro por nombre
-		if *nameSimple != "" && !strings.Contains(path, *nameSimple) {
-			return nil
-		}
-		if reName != nil && !reName.MatchString(path) {
-			return nil
-		}
+			// Filtro por nombre
+			if *nameSimple != "" && !strings.Contains(path, *nameSimple) {
+				return nil
+			}
+			if reName != nil && !reName.MatchString(path) {
+				return nil
+			}
 
-		// Leer contenido
-		data, err := os.ReadFile(path)
+			// Leer contenido
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			cont := string(data)
+
+			// Filtro por contenido
+			if *searchSimple != "" && !strings.Contains(cont, *searchSimple) {
+				return nil
+			}
+			if reContent != nil && !reContent.MatchString(cont) {
+				return nil
+			}
+
+			// Si pasa todos los filtros, lo incluimos en el buffer
+			ext := filepath.Ext(path)
+			relPath, _ := filepath.Rel(dir, path)
+			buffer.WriteString(fmt.Sprintf("-- `%s/%s`\n", dir, relPath))
+			buffer.WriteString(fmt.Sprintf("```%s\n", strings.TrimPrefix(ext, ".")))
+			buffer.WriteString(cont + "\n```\n")
+			return nil
+		})
 		if err != nil {
-			return err
+			log.Fatal(err)
 		}
-		cont := string(data)
-
-		// Filtro por contenido
-		if *searchSimple != "" && !strings.Contains(cont, *searchSimple) {
-			return nil
-		}
-		if reContent != nil && !reContent.MatchString(cont) {
-			return nil
-		}
-
-		// Si pasa todos los filtros, lo incluimos
-		ext := filepath.Ext(path)
-		fmt.Fprintf(&buffer, "-- `%s`\n", strings.TrimPrefix(path, dir+"/"))
-		fmt.Fprintf(&buffer, "```%s\n", strings.TrimPrefix(ext, "."))
-		fmt.Fprintf(&buffer, "%s\n```\n\n", cont)
-		return nil
-	})
-	if err != nil {
-		log.Fatal(err)
 	}
 
-	// Guardar en archivo si se indicó
+	// Guardar en archivo si se indicó la flag
 	if outFile != "" {
 		abs, err := filepath.Abs(outFile)
 		if err != nil {
