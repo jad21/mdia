@@ -168,6 +168,7 @@ func main() {
 				strings.HasSuffix(path, ".gif") ||
 				strings.HasSuffix(path, ".svg") ||
 				strings.HasSuffix(path, ".pdf") ||
+				strings.HasSuffix(path, ".webp") ||
 				strings.HasSuffix(path, ".ico") ||
 				path == "pnpm-lock.yaml" ||
 				strings.HasPrefix(path, "node_modules/") ||
