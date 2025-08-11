@@ -12,8 +12,24 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	"github.com/bmatcuk/doublestar/v4"
 	ign "github.com/sabhiram/go-gitignore"
 )
+
+// multiFlag permite repetir --ignore varias veces
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(value string) error {
+	*m = append(*m, value)
+	return nil
+}
+
+func hasMeta(s string) bool {
+	return strings.ContainsAny(s, "*?[")
+}
+
+func toSlash(p string) string { return filepath.ToSlash(p) }
 
 func main() {
 	// Flags de filtro
@@ -26,6 +42,10 @@ func main() {
 	var outFile string
 	flag.StringVar(&outFile, "output", "", "Archivo de salida")
 	flag.StringVar(&outFile, "o", "", "Archivo de salida (alias)")
+
+	// --ignore (rutas o globs)
+	var ignores multiFlag
+	flag.Var(&ignores, "ignore", "Rutas o patrones a ignorar (repetible). Ej: --ignore src/static --ignore \"**/*.png\"")
 
 	flag.Parse()
 	dirs := flag.Args()
@@ -53,8 +73,14 @@ func main() {
 	}
 
 	var buffer bytes.Buffer
+
 	// Recorrer todos los directorios indicados
 	for _, dir := range dirs {
+		dirAbs, err := filepath.Abs(dir)
+		if err != nil {
+			log.Fatalf("No se pudo resolver directorio %q: %v", dir, err)
+		}
+
 		// Cargar .gitignore si existe
 		ignoreFile := filepath.Join(dir, ".gitignore")
 		var ignorer *ign.GitIgnore
@@ -64,19 +90,78 @@ func main() {
 			ignorer = ign.CompileIgnoreLines()
 		}
 
+		// Separar ignores del usuario en dos grupos:
+		// 1) rutas literales (prefijo) resueltas a absolutas respecto a 'dir'
+		// 2) patrones glob (doublestar) guardados tal cual y comparados contra rel y abs
+		var (
+			literalAbs []string
+			globPats   []string
+		)
+		for _, ig := range ignores {
+			if hasMeta(ig) {
+				globPats = append(globPats, toSlash(ig))
+				continue
+			}
+			// Ruta literal: si es relativa, interpretarla relativa a 'dir'
+			p := ig
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(dirAbs, p)
+			}
+			literalAbs = append(literalAbs, filepath.Clean(p))
+		}
+
+		// Helpers de ignore
+		isUnderLiteral := func(absPath string) bool {
+			absPath = filepath.Clean(absPath)
+			for _, base := range literalAbs {
+				if absPath == base || strings.HasPrefix(absPath, base+string(os.PathSeparator)) {
+					return true
+				}
+			}
+			return false
+		}
+		matchesGlob := func(absPath, relPath string) bool {
+			a := toSlash(filepath.Clean(absPath))
+			r := toSlash(filepath.Clean(relPath))
+			for _, pat := range globPats {
+				// Intentar contra ruta relativa al directorio raíz
+				if ok, _ := doublestar.PathMatch(pat, r); ok {
+					return true
+				}
+				// Y también contra la absoluta por si el patrón lo es
+				if ok, _ := doublestar.PathMatch(pat, a); ok {
+					return true
+				}
+			}
+			return false
+		}
+
 		err = filepath.Walk(dir, func(path string, info fs.FileInfo, ferr error) error {
 			if ferr != nil {
 				return ferr
 			}
+			pathAbs, _ := filepath.Abs(path)
+			relPath, _ := filepath.Rel(dirAbs, pathAbs)
+
+			// Ignorar por --ignore (rutas o globs) o .gitignore
 			if info.IsDir() {
+				if isUnderLiteral(pathAbs) || matchesGlob(pathAbs, relPath) {
+					return filepath.SkipDir
+				}
 				if ignorer != nil && ignorer.MatchesPath(path) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			// Ignorar según gitignore y extensiones fijas
-			if (ignorer != nil && ignorer.MatchesPath(path)) ||
-				strings.HasSuffix(path, ".pyc") ||
+			if isUnderLiteral(pathAbs) || matchesGlob(pathAbs, relPath) {
+				return nil
+			}
+			if ignorer != nil && ignorer.MatchesPath(path) {
+				return nil
+			}
+
+			// Ignorar por extensiones/rutas fijas
+			if strings.HasSuffix(path, ".pyc") ||
 				strings.HasSuffix(path, ".png") ||
 				strings.HasSuffix(path, ".jpg") ||
 				strings.HasSuffix(path, ".jpeg") ||
@@ -118,10 +203,10 @@ func main() {
 				return nil
 			}
 
-			// Si pasa todos los filtros, lo incluimos en el buffer
+			// Incluir en buffer
 			ext := filepath.Ext(path)
-			relPath, _ := filepath.Rel(dir, path)
-			buffer.WriteString(fmt.Sprintf("-- `%s/%s`\n", dir, relPath))
+			relToDir, _ := filepath.Rel(dir, path)
+			buffer.WriteString(fmt.Sprintf("-- `%s/%s`\n", dir, relToDir))
 			buffer.WriteString(fmt.Sprintf("```%s\n", strings.TrimPrefix(ext, ".")))
 			buffer.WriteString(cont + "\n```\n")
 			return nil
